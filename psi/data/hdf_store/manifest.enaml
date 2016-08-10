@@ -1,12 +1,23 @@
-from atom.api import Unicode, Typed
+import logging
+log = logging.getLogger(__name__)
+
+from atom.api import Unicode, Typed, Property, Bool
+from enaml.application import deferred_call
+from enaml.layout.api import InsertItem
+from enaml.widgets.api import DockItem
 from enaml.workbench.api import Extension, PluginManifest
+from enaml.workbench.core.api import Command
+
 
 import tables as tb
 import pandas as pd
 import numpy as np
 
 from ..plugin import Sink
-from psi.controller.api import ContinuousAnalogInput, AnalogThreshold
+from psi import get_config
+from psi.core.utils import find_extension
+
+from .data_source import DataChannel, DataTable
 
 PLUGIN_ID = 'psi.data.hdf_store'
 
@@ -16,21 +27,19 @@ class HDFStore(Sink):
     Simple class for storing acquired trial data in a HDF5 file. No analysis or
     further processing is done.
     '''
-    file_handle = Typed(tb.File)
+    file_handle = Property()
     node = Typed(tb.Group)
+    initialized = Bool(False)
 
-    trial_log = Typed(tb.Table)
+    trial_log = Typed(object)
     trial_log_dtype = Typed(np.dtype)
-    event_log = Typed(tb.Table)
+    event_log = Typed(object)
     event_log_dtype = Typed(np.dtype)
 
-    _arrays = Typed(dict)
+    _channels = Typed(dict)
 
-    def _default_file_handle(self):
-        return tb.open_file('c:/users/bburan/desktop/temp.h5', 'w')
-
-    def _default_node(self):
-        return self.file_handle.root
+    def _get_file_handle(self):
+        return self.node._v_file
 
     def _prepare_trial_log(self, context_info):
         '''
@@ -39,9 +48,9 @@ class HDFStore(Sink):
         dtype = [(str(name), item['dtype']) for name, item \
                  in context_info.items()]
         self.trial_log_dtype = np.dtype(dtype)
-        self.trial_log = self.file_handle.create_table(self.node,
-                                                       'trial_log',
-                                                       self.trial_log_dtype)
+        node = self.file_handle.create_table(self.node, 'trial_log',
+                                             self.trial_log_dtype)
+        self.trial_log = DataTable(data=node)
 
     def _prepare_event_log(self):
         '''
@@ -50,15 +59,14 @@ class HDFStore(Sink):
         dtype = [('timestamp', np.dtype('float32')), 
                  ('event', np.dtype('S512'))]
         self.event_log_dtype = np.dtype(dtype)
-        self.event_log = self.file_handle.create_table(self.node,
-                                                       'event_log',
-                                                       self.event_log_dtype)
+        node = self.file_handle.create_table(self.node, 'event_log',
+                                             self.event_log_dtype)
+        self.event_log = DataTable(data=node)
 
     def _prepare_continuous_input(self, input):
         atom = tb.Atom.from_dtype(input.channel.dtype)
         expected_rows = int(input.channel.fs * 60 * 60)
-        filters = tb.Filters(complevel=9, complib='zlib', shuffle=False,
-                                fletcher32=True)
+        filters = tb.Filters(**get_config('H5_COMPRESSION'))
         node = self.file_handle.create_earray(self.node, input.name, atom,
                                               (0,), filters=filters,
                                               expectedrows=expected_rows)
@@ -68,35 +76,34 @@ class HDFStore(Sink):
             node._v_attrs['channel_' + name] = value
         for name, value in input.engine.__getstate__().items():
             node._v_attrs['engine_' + name] = value
-        return node
-
-    def _prepare_epoch_input(self, input):
-        return None
-        atom = tb.Float64Atom()
-        filters = tb.Filters(complevel=9, complib='zlib', shuffle=True,
-                             fletcher32=True)
-        return self.file_handle.create_earray(self.node, output.name, atom,
-                                              (0,), filters=filters,
-                                              expectedrows=1000)
-
-    _input_map = {
-        ContinuousAnalogInput: _prepare_continuous_input,
-        AnalogThreshold: _prepare_epoch_input,
-    }
+        return DataChannel(data=node, fs=input.fs) 
 
     def _prepare_inputs(self, inputs):
-        arrays = {}
+        channels = {}
         for input in inputs:
-            prepare_function = self._input_map[type(input)]
-            arrays[input.name] = prepare_function(self, input)
-        self._arrays = arrays
+            try:
+                prep_function_name = '_prepare_{}_input'.format(input.mode)
+                prep_function = getattr(self, prep_function_name)
+                channels[input.name] = prep_function(input)
+            except AttributeError:
+                m = 'No method for preparing datasource for {}'
+                log.debug(m.format(input.mode))
+        self._channels = channels
 
     def prepare(self, plugin):
         self._prepare_event_log()
         self._prepare_trial_log(plugin.context_info)
         self._prepare_inputs(plugin.inputs.values())
+        self._channels['trial_log'] = self.trial_log
+        self._channels['event_log'] = self.event_log
+        self.initialized = True
 
     def finalize(self):
+        log.debug('Flushing all data to disk')
+        self.file_handle.flush()
+
+    def stop(self):
+        log.debug('Closing HDF5 file')
         self.file_handle.close()
 
     def process_trial(self, results):
@@ -111,8 +118,25 @@ class HDFStore(Sink):
         self.event_log.append(row)
 
     def process_ai(self, name, data):
-        if self._arrays[name] is not None:
-            self._arrays[name].append(data)
+        if self._channels[name] is not None:
+            self._channels[name].append(data)
+
+    def get_source(self, source_name):
+        try:
+            return self._channels[source_name]
+        except KeyError:
+            # TODO: Once we port to Python 3, add exception chaining.
+            raise AttributeError
+
+    def set_current_time(self, name, timestamp):
+        self._channels[name].set_current_time(timestamp)
+
+
+def set_node(event):
+    extension = find_extension(event.workbench, PLUGIN_ID, 'sink', HDFStore)
+    if extension.initialized:
+        raise ValueError('Cannot change node once data has initialized')
+    extension.node = event.parameters['node']
 
 
 enamldef HDFStoreManifest(PluginManifest): manifest:
@@ -120,7 +144,14 @@ enamldef HDFStoreManifest(PluginManifest): manifest:
     id = PLUGIN_ID
 
     Extension:
-        id = 'data'
+        id = 'sink'
         point = 'psi.data.sink'
         HDFStore:
             pass
+
+    Extension:
+        id = 'commands'
+        point = 'enaml.workbench.core.commands'
+        Command:
+            id = PLUGIN_ID + '.set_node'
+            handler = set_node

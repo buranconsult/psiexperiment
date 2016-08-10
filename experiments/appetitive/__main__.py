@@ -1,3 +1,6 @@
+import warnings
+import tables as tb
+
 import enaml
 
 from experiments import initialize_default, configure_logging
@@ -7,8 +10,6 @@ if __name__ == '__main__':
     with enaml.imports():
         from experiments.appetitive.manifest \
             import ControllerManifest
-        from psi.controller.actions.NE1000.manifest \
-            import NE1000Manifest
         from psi.controller.actions.pellet_dispenser.manifest \
             import PelletDispenserManifest
         from psi.controller.actions.room_light.manifest \
@@ -20,7 +21,6 @@ if __name__ == '__main__':
 
         extra_manifests = [
             ControllerManifest,
-            NE1000Manifest,
             PelletDispenserManifest,
             RoomLightManifest,
             TrialLogManifest,
@@ -29,13 +29,19 @@ if __name__ == '__main__':
             EventLogManifest,
         ]
         workbench = initialize_default(extra_manifests)
-
         core = workbench.get_plugin('enaml.workbench.core')
         core.invoke_command('enaml.workbench.ui.select_workspace',
                             {'workspace': 'psi.experiment.workspace'})
 
-    ui = workbench.get_plugin('enaml.workbench.ui')
-    ui.show_window()
+    with tb.open_file('c:/users/bburan/desktop/test.h5', 'w') as fh:
+        core.invoke_command('psi.data.hdf_store.set_node', {'node': fh.root})
 
-    configure_logging()
-    ui.start_application()
+        ui = workbench.get_plugin('enaml.workbench.ui')
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            ui.show_window()
+
+        filename = 'c:/users/bburan/desktop/appetitive_log.txt' 
+        configure_logging(filename)
+        ui.start_application()

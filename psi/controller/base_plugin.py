@@ -18,6 +18,14 @@ from ..token import get_token_manifest
 IO_POINT = 'psi.controller.io'
 ACTION_POINT = 'psi.controller.actions'
 
+def get_named_inputs(input):
+    named_inputs = []
+    for child in input.children:
+        named_inputs.extend(get_named_inputs(child))
+    if input.name:
+        named_inputs.append(input)
+    return named_inputs
+
 
 class BaseController(Plugin):
 
@@ -32,9 +40,9 @@ class BaseController(Plugin):
     context = Typed(Plugin)
     data = Typed(Plugin)
 
-    # We should not respond to changes during the course of a trial. These flags
-    # indicate changes or requests from the user are pending and should be
-    # processed when the opportunity arises (e.g., at the end of the trial).
+    # We should not respond to changes during the course of a trial. These
+    # flags indicate changes or requests from the user are pending and should
+    # be processed when the opportunity arises (e.g., at the end of the trial).
     _apply_requested = Bool(False)
     _remind_requested = Bool(False)
     _pause_requested = Bool(False)
@@ -94,8 +102,9 @@ class BaseController(Plugin):
                 for channel in engine.channels:
                     for output in getattr(channel, 'outputs', []):
                         outputs[output.name] = output
-                    for input in getattr(channel, 'inputs', []):
-                        inputs[input.name] = input
+                    for all_inputs in getattr(channel, 'inputs', []):
+                        for input in get_named_inputs(all_inputs):
+                            inputs[input.name] = input
 
         self._master_engine = master_engine
         self._engines = engines
@@ -143,7 +152,10 @@ class BaseController(Plugin):
     def get_output(self, output_name):
         return self._outputs[output_name]
 
-    def invoke_actions(self, event):
+    def invoke_actions(self, event, timestamp):
+        params = {'event': event, 'timestamp': timestamp}
+        self.core.invoke_command('psi.data.process_event', params)
+
         log.debug('Invoking actions for {}'.format(event))
         for action in self._actions.get(event, []):
             log.debug('Invoking command {}'.format(action.command))

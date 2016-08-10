@@ -1,3 +1,6 @@
+import logging
+log = logging.getLogger(__name__)
+
 from atom.api import ContainerList, Typed
 from enaml.workbench.api import Plugin
 
@@ -5,14 +8,18 @@ import numpy as np
 import pandas as pd
 
 from .sink import Sink
+from .plots import PlotContainer
 
 
 SINK_POINT = 'psi.data.sink'
+PLOT_POINT = 'psi.data.plots'
 
 
 class DataPlugin(Plugin):
 
     _sinks = Typed(list, [])
+    _plots = Typed(list, [])
+    _containers = Typed(dict, {})
 
     inputs = Typed(dict, {})
     context_info = Typed(dict, {})
@@ -21,6 +28,7 @@ class DataPlugin(Plugin):
 
     def start(self):
         self._refresh_sinks()
+        self._refresh_plots()
         self._bind_observers()
 
         # Listen to changes on the context items so that we can update the
@@ -38,13 +46,24 @@ class DataPlugin(Plugin):
             sinks.extend(extension.get_children(Sink))
         self._sinks = sinks
 
+    def _refresh_plots(self):
+        plots = []
+        point = self.workbench.get_extension_point(PLOT_POINT)
+        for extension in point.extensions:
+            plots.extend(extension.get_children(PlotContainer))
+        self._plots = plots
+
     def _bind_observers(self):
         self.workbench.get_extension_point(SINK_POINT) \
             .observe('extensions', self._refresh_sinks)
+        self.workbench.get_extension_point(PLOT_POINT) \
+            .observe('extensions', self._refresh_plots)
 
     def _unbind_observers(self):
         self.workbench.get_extension_point(SINK_POINT) \
             .unobserve('extensions', self._refresh_sinks)
+        self.workbench.get_extension_point(PLOT_POINT) \
+            .unobserve('extensions', self._refresh_plots)
 
     def _context_items_changed(self, items=None):
         context = self.workbench.get_plugin('psi.context')
@@ -64,6 +83,12 @@ class DataPlugin(Plugin):
         ])
         self.event_log = pd.DataFrame(arrays)
 
+    def _prepare_plots(self):
+        containers = {}
+        for plot in self._plots:
+            containers[plot.name] = plot.create_container(self)
+        self._containers = containers
+        
     def prepare(self):
         self._prepare_trial_log()
         self._prepare_event_log()
@@ -71,6 +96,10 @@ class DataPlugin(Plugin):
         self.inputs = controller._inputs.copy()
         for sink in self._sinks:
             sink.prepare(self)
+
+        # This needs to happen *after* we prepare the sinks (to ensure that
+        # they have created the appropriate data stores).
+        self._prepare_plots()
 
     def finalize(self):
         for sink in self._sinks:
@@ -91,4 +120,23 @@ class DataPlugin(Plugin):
 
     def process_ai(self, name, data):
         for sink in self._sinks:
+            #if __debug__:
+            #    log.trace('Sending {} samples from {} to {}' \
+            #              .format(data.shape, name, sink))
             sink.process_ai(name, data)
+
+    def set_current_time(self, name, timestamp):
+        for sink in self._sinks:
+            sink.set_current_time(name, timestamp)
+
+    def find_source(self, source_name):
+        '''
+        Find the source by quering the sinks in order until one of them returns
+        the channel.
+        '''
+        for sink in self._sinks:
+            try:
+                return sink.get_source(source_name)
+            except AttributeError:
+                pass
+        raise AttributeError('Source not available')

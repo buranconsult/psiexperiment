@@ -11,10 +11,14 @@ from psi.controller.appetitive_manifest import AppetitiveManifest
 from psi.controller.engines.nidaq import NIDAQEngine
 
 from psi.context.api import ContextGroup, Parameter
-from psi.controller.api import (ContinuousAnalogInput, AnalogThreshold,
-                                ContinuousOutput, EpochOutput, AIChannel,
+from psi.controller.api import (ContinuousOutput, EpochOutput, AIChannel,
                                 AOChannel, ExperimentAction, Trigger, Toggle,
-                                DOChannel)
+                                DOChannel, Input)
+from psi.data.plots import (TimeContainer, ChannelPlot, TimeseriesPlot,
+                            ExtremesChannelPlot)
+
+
+from psi.controller.input import Downsample, IIRFilter, Threshold, Edges
 
 
 def insert_target(event):
@@ -67,8 +71,10 @@ enamldef ControllerManifest(AppetitiveManifest): manifest:
             # and reward contact, we want a fairly short AI monitor period to
             # ensure that we detect these events quickly.
             hw_ai_monitor_period = 0.01
+            hw_ao_monitor_period = 1
 
             AOChannel:
+                label = 'Speaker'
                 name = 'speaker'
                 channel = 'Dev1/ao0'
                 fs = 100e3
@@ -108,48 +114,113 @@ enamldef ControllerManifest(AppetitiveManifest): manifest:
                     # room light plugin will not work!
                     name = 'room_light_toggle'
 
+            #AIChannel:
+            #    label = 'Microphone'
+            #    name = 'microphone'
+            #    channel = 'Dev1/ai0'
+            #    start_trigger = 'ao/StartTrigger'
+            #    fs = 100e3
+            #    expected_range = (-10, 10)
+            #    dtype = np.dtype('float64')
+            #    mode = 'differential'
+
+            #    Input:
+            #        name = 'microphone'
+
             AIChannel:
-                name = 'microphone'
+                label = 'Nose poke IR'
+                name = 'nose_poke'
                 channel = 'Dev1/ai2'
                 start_trigger = 'ao/StartTrigger'
-                fs = 25e3
+                fs = 100e3
                 expected_range = (-10, 10)
                 dtype = np.dtype('float64')
+                mode = 'differential'
 
-                ContinuousAnalogInput:
-                    name = 'microphone'
+                IIRFilter:
+                    f_lowpass = 25
+                    btype = 'lowpass'
+                    ftype = 'butter'
+                    N = 4
+                    Downsample:
+                        # effective Fs is 100
+                        name = 'nose_poke_analog'
+                        q = 1000
+                        Threshold:
+                            threshold = 2.5
+                            Edges:
+                                debounce = 2
+                                name = 'nose_poke'
 
-            AIChannel:
-                name = 'nose_poke'
-                channel = 'Dev1/ai0'
-                start_trigger = 'ao/StartTrigger'
-                fs = 25e3
-                expected_range = (-10, 10)
-                dtype = np.dtype('float64')
-
-                ContinuousAnalogInput:
-                    name = 'nose_poke_analog'
-
-                AnalogThreshold:
-                    name = 'nose_poke'
-                    threshold = 2.5
-                    debounce = 100
 
             AIChannel:
+                label = 'Reward contact IR'
                 name = 'reward_contact'
-                channel = 'Dev1/ai1'
+                channel = 'Dev1/ai3'
                 start_trigger = 'ao/StartTrigger'
-                fs = 25e3
+                fs = 100e3
                 expected_range = (-10, 10)
                 dtype = np.dtype('float64')
+                mode = 'differential'
 
-                ContinuousAnalogInput:
-                    name = 'reward_contact_analog'
+                IIRFilter:
+                    f_lowpass = 25
+                    btype = 'lowpass'
+                    ftype = 'butter'
+                    N = 1
+                    Downsample:
+                        name = 'reward_contact_analog'
+                        q = 1000
+                        Threshold:
+                            threshold = 2.5
+                            Edges:
+                                debounce = 2
+                                name = 'reward_contact'
 
-                AnalogThreshold:
-                    name = 'reward_contact'
-                    threshold = 2.5
-                    debounce = 100
+
+    Extension:
+        id = 'plots'
+        point = 'psi.data.plots'
+
+        TimeContainer:
+            name = 'trial_plot_container' 
+            title = 'Trial timing'
+            trig_delay = 0
+            span = 10
+
+            ChannelPlot:
+                source = 'reward_contact_analog'
+                line_color = (1, 0, 1)
+                value_range = (-20, 6)
+
+            ChannelPlot:
+                source = 'nose_poke_analog'
+                line_color = (0, 0, 1)
+                value_range = (-20, 6)
+
+            TimeseriesPlot:
+                source = 'event_log'
+                rising_event = 'reward_start'
+                falling_event = 'reward_end'
+                fill_color = (0.25, 0.41, 0.88, 0.25)
+                line_color = (0.25, 0.41, 0.88, 0.5)
+                rect_center = 0.25
+                rect_height = 0.2
+
+            TimeseriesPlot:
+                source = 'event_log'
+                rising_event = 'np_start'
+                falling_event = 'np_end'
+                fill_color = (.17, .54, .34, 0.25)
+                line_color = (.17, .54, .34, 0.5)
+                rect_center = 0.5
+                rect_height = 0.2
+
+            #ExtremesChannelPlot:
+            #    decimation_threshold = 5
+            #    source = 'microphone'
+            #    line_color = (0, 0, 0)
+            #    value_range = (-1, 1)
 
 
     # TODO: Should these automatically be contributed by the controller when it
