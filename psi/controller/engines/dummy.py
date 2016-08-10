@@ -4,6 +4,7 @@ from threading import Timer
 import time
 
 from atom.api import Typed, Int, Float, Bool
+from enaml.core.api import d_
 
 from ..engine import Engine
 
@@ -25,6 +26,8 @@ class DummyEngine(Engine):
 
     buffer_size = Float(30)
     buffer_samples = Int()
+
+    hw_ai_monitor_period = d_(Float(0.1))
 
     def start(self):
         self.buffer_samples = int(self.buffer_size*self.ao_fs)
@@ -64,11 +67,11 @@ class DummyEngine(Engine):
         cb = self._callbacks.setdefault('ao', [])
         cb.append(callback)
 
-    def register_ai_callback(self, callback):
+    def register_ai_callback(self, callback, name):
         cb = self._callbacks.setdefault('ai', [])
         cb.append(callback)
 
-    def register_et_callback(self, callback):
+    def register_et_callback(self, callback, name):
         cb = self._callbacks.setdefault('et', [])
         cb.append(callback)
 
