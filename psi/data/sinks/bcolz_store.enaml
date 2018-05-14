@@ -331,6 +331,7 @@ def prepare(sink, event):
     sink._prepare_event_log()
     sink._prepare_trial_log(context.context_items)
 
+
 def flush(sink, event):
     for store in sink._stores.values():
         store.flush()

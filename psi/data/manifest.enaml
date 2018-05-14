@@ -47,6 +47,7 @@ def set_base_path(event):
         else:
             dt_string = dt.datetime.now().strftime('%Y%m%d-%H%M')
             base_path = args.pathname.format(date_time=dt_string)
+    os.makedirs(base_path)
     data = event.workbench.get_plugin('psi.data')
     os.makedirs(base_path)
     data.set_base_path(base_path)

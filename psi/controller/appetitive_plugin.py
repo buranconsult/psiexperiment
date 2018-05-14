@@ -85,10 +85,10 @@ class AppetitivePlugin(BasePlugin):
     experiments as well (it may already be sufficiently generic).
     '''
     # Current trial
-    trial = Int(0)
+    trial = Int()
 
     # Current number of consecutive nogos
-    consecutive_nogo = Int(0)
+    consecutive_nogo = Int()
 
     # What was the result of the prior trial?
     prior_score = Typed(TrialScore)
@@ -146,7 +146,9 @@ class AppetitivePlugin(BasePlugin):
 
     def start_experiment(self):
         try:
-            self.trial += 1
+            self.trial = 1
+            self.consecutive_nogo = 0
+
             self.rng = np.random.RandomState()
             self.context.next_setting(self.next_selector(), save_prior=False)
             self.experiment_state = 'running'

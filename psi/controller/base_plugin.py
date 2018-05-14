@@ -120,7 +120,7 @@ def find_inputs(channels, point):
 class BasePlugin(Plugin):
 
     # Tracks the state of the controller.
-    experiment_state = Enum('initialized', 'running', 'paused', 'stopped')
+    experiment_state = Enum('stopped', 'running', 'paused')
 
     # Provides direct access to plugins rather than going through the core
     # command system. Right now the context plugin is so fundamentally important

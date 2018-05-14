@@ -397,9 +397,7 @@ class ChannelPlot(SinglePlot):
 
     def _append_data(self, data):
         self._buffer.append_data(data)
-        log.debug('Requesting update')
         self.update()
-        log.debug('Done receiving data')
 
     def _update(self, event=None):
         low, high = self.parent.data_range.current_range
@@ -415,7 +413,6 @@ class ChannelPlot(SinglePlot):
         else:
             t = t[:len(data)]
             self.plot.setData(t, data)
-        log.debug('Done updating plot')
         self.update_pending = False
 
 

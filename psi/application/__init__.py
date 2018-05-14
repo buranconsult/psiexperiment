@@ -48,8 +48,8 @@ def configure_logging(filename=None):
                 },
             },
         'loggers': {
-            '__main__': {'level': 'INFO'},
-            'psi': {'level': 'INFO'},
+            '__main__': {'level': 'DEBUG'},
+            'psi': {'level': 'DEBUG'},
             },
         'root': {
             'handlers': ['console'],
