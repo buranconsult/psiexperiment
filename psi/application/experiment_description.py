@@ -55,7 +55,7 @@ temperature_mixin = PluginDescription(
     name='temperature',
     title='Temperature display',
     required=False,
-    selected=True,
+    selected=False,
     manifest='psi.application.experiment.cfts_mixins.TemperatureMixinManifest',
 )
 
@@ -64,7 +64,7 @@ eeg_view_mixin = PluginDescription(
     name='eeg_view',
     title='EEG display',
     required=False,
-    selected=True,
+    selected=False,
     manifest='psi.application.experiment.cfts_mixins.EEGViewMixinManifest',
 )
 
